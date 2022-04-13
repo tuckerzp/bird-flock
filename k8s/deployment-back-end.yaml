@@ -4,7 +4,7 @@ kind: Deployment
 metadata:
   name: birds-app-back-end-deployment
 spec:
-  replicas: 1
+  replicas: 5
   revisionHistoryLimit: 3
   selector:
     matchLabels:
@@ -15,7 +15,7 @@ spec:
         app: birds-app-back-end-tuckerzp
     spec:
       containers:
-        - image: 'ghcr.io/tuckerzp/birds-app-back-end:a293a4a5669e64b4fc0821de27cba3556b500ca7'
+        - image: 'ghcr.io/tuckerzp/birds-app-back-end:5c17f2ffb0a32d42a8c370ce2ab887af2a212efb'
           name: birds-back-front-end
           ports:
             - containerPort: 8080
