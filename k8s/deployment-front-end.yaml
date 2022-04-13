@@ -8,14 +8,14 @@ spec:
   revisionHistoryLimit: 3
   selector:
     matchLabels:
-      app: birds-app-front-end-ripleymj
+      app: birds-app-front-end-tuckerzp
   template:
     metadata:
       labels:
-        app: birds-app-front-end-ripleymj
+        app: birds-app-front-end-tuckerzp
     spec:
       containers:
-        - image: 'ghcr.io/ripleymj/birds-app-front-end:cd20b68e57a21f2bcc09756978434417c90e33b0'
+        - image: 'ghcr.io/tuckerzp/birds-app-front-end:447a697a83d7b66588c46b07181086a2bfd0ff79'
           name: birds-app-front-end
           ports:
             - containerPort: 80

@@ -6,7 +6,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: ripleymj.cluster.jmunixusers.org
+    - host: tuckerzp.cluster.jmunixusers.org
       http:
         paths:
           - path: /api

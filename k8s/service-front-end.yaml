@@ -9,4 +9,4 @@ spec:
       port: 80
       protocol: TCP
   selector:
-    app: birds-app-front-end-ripleymj
+    app: birds-app-front-end-tuckerzp
