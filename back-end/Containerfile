@@ -1,0 +1,13 @@
+# Move binary to final image and run it
+FROM alpine:latest
+
+WORKDIR /app
+
+# Copy built binary from build image
+COPY back-end/app .
+COPY back-end/birds.json .
+
+# Expose port 8080
+EXPOSE 8080
+
+CMD ["./app"]

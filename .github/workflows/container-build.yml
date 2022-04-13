@@ -1,0 +1,225 @@
+name: Build Birds App
+env:
+  FE_IMAGE_NAME: birds-app-front-end
+  BE_IMAGE_NAME: birds-app-back-end
+  REGISTRY: ghcr.io/${{ github.actor }}
+on:
+  push:
+    paths-ignore:
+      - 'k8s/**'
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Repo lint and sanity check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the repository
+        uses: actions/checkout@v2
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.x
+      - name: Install dependencies
+        run: |
+          pip3 install yamllint j2cli
+      - name: Run Jinja
+        run: |
+          rm k8s/*
+          j2 -o k8s/deployment-back-end.yaml templates/deployment-back-end.yaml.j2
+          j2 -o k8s/deployment-front-end.yaml templates/deployment-front-end.yaml.j2
+          j2 -o k8s/service-back-end.yaml templates/service-back-end.yaml.j2
+          j2 -o k8s/service-front-end.yaml templates/service-front-end.yaml.j2
+          j2 -o k8s/ingress-back-end.yaml templates/ingress-back-end.yaml.j2
+          j2 -o k8s/ingress-front-end.yaml templates/ingress-front-end.yaml.j2
+        env:
+          version: ${{ github.sha }}
+          username: ${{ github.actor }}
+      - name: Run actions yamllint
+        run: |
+          yamllint -d "{extends: default, rules: {line-length: {max: 120}}}" k8s/*
+      - name: Fetch and untar kubeval
+        run: |
+          wget -nv https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+          tar zxf kubeval-linux-amd64.tar.gz
+      - name: Run kubeval
+        run: |
+          ./kubeval --schema-location https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master -d k8s
+  build-back-end:
+    name: Build back-end
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - name: Clone the repository
+        uses: actions/checkout@v2
+      - name: Install GoLang
+        uses: actions/setup-go@v3
+      - name: Download dependencies
+        run: |
+          cd back-end
+          go mod download
+      - name: Compile application
+        run: |
+          cd back-end
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -o app .
+      - name: Build container
+        id: build-image
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: ${{ env.BE_IMAGE_NAME }}
+          containerfiles: |
+            back-end/Containerfile
+      - name: Export container image
+        run: |
+          buildah push ${{ steps.build-image.outputs.image }} oci-archive:backend.tar:${{ env.BE_IMAGE_NAME }}:testing
+      - name: Upload Image
+        uses: actions/upload-artifact@v3
+        with:
+          name: backend
+          path: backend.tar
+          retention-days: 1
+  test-back-end:
+    name: Test back-end
+    needs: build-back-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v3
+        id: download
+        with:
+          name: backend
+      - name: Import container
+        run: |
+          podman load -i ${{steps.download.outputs.download-path}}/backend.tar
+      - name: Launch container
+        run: |
+          podman run -d --rm -p 8080:8080 --name ${{ env.BE_IMAGE_NAME }} ${{ env.BE_IMAGE_NAME }}:testing
+      - name: Test fetching from container
+        run: |
+          sleep 5
+          curl http://localhost:8080
+      - name: Stop container
+        run: |
+          podman stop ${{ env.BE_IMAGE_NAME }}
+
+  build-front-end:
+    name: Build front-end
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the repository
+        uses: actions/checkout@v2
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+          cache: 'npm'
+          cache-dependency-path: |
+            front-end/package-lock.json
+      - name: Build app
+        run: |
+          cd front-end
+          npm ci --silent
+          npm install react-scripts -g --silent
+          npm run build
+      - name: Buildah Action
+        id: build-image
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: ${{ env.FE_IMAGE_NAME }}
+          containerfiles: |
+            front-end/Containerfile
+      - name: Export container image
+        run: |
+          buildah push ${{ steps.build-image.outputs.image }} oci-archive:frontend.tar:${{ env.FE_IMAGE_NAME }}:testing
+      - name: Upload Image
+        uses: actions/upload-artifact@v3
+        with:
+          name: frontend
+          path: frontend.tar
+          retention-days: 1
+
+  test-front-end:
+    name: Test front-end
+    needs: build-front-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v3
+        id: download
+        with:
+          name: frontend
+      - name: Import container
+        run: |
+          podman load -i ${{steps.download.outputs.download-path}}/frontend.tar
+      - name: Launch container
+        run: |
+          podman run -d --rm -p 8080:80 --name ${{ env.FE_IMAGE_NAME }} ${{ env.FE_IMAGE_NAME }}:testing
+      - name: Test fetching from container
+        run: |
+          sleep 5
+          curl http://localhost:8080
+      - name: Stop container
+        run: |
+          podman stop ${{ env.FE_IMAGE_NAME }}
+
+  publish:
+    name: Publish Updated Image
+    needs: [test-front-end, test-back-end]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the repository
+        uses: actions/checkout@v2
+      - name: Log in to the GitHub Container registry
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v3
+        id: download
+        with:
+          path: artifacts/
+      - name: Import containers
+        run: |
+          podman load -i ${{steps.download.outputs.download-path}}/frontend/frontend.tar
+          podman tag ${{ env.FE_IMAGE_NAME }}:testing ${{ env.FE_IMAGE_NAME }}:latest
+          podman tag ${{ env.FE_IMAGE_NAME }}:testing ${{ env.FE_IMAGE_NAME }}:${{ github.sha }}
+          podman load -i ${{steps.download.outputs.download-path}}/backend/backend.tar
+          podman tag ${{ env.BE_IMAGE_NAME }}:testing ${{ env.BE_IMAGE_NAME }}:latest
+          podman tag ${{ env.BE_IMAGE_NAME }}:testing ${{ env.BE_IMAGE_NAME }}:${{ github.sha }}
+          podman images
+      - name: Push front-end to GitHub Container Repository
+        uses: redhat-actions/push-to-registry@v2
+        with:
+          image: ${{ env.FE_IMAGE_NAME }}
+          tags: latest ${{ github.sha }}
+          registry: ${{ env.REGISTRY }}
+      - name: Push back-end to GitHub Container Repository
+        uses: redhat-actions/push-to-registry@v2
+        with:
+          image: ${{ env.BE_IMAGE_NAME }}
+          tags: latest ${{ github.sha }}
+          registry: ${{ env.REGISTRY }}
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.x
+      - name: Install dependencies
+        run: |
+          pip3 install j2cli
+      - name: Run Jinja
+        run: |
+          rm k8s/*
+          j2 -o k8s/deployment-back-end.yaml templates/deployment-back-end.yaml.j2
+          j2 -o k8s/deployment-front-end.yaml templates/deployment-front-end.yaml.j2
+          j2 -o k8s/service-back-end.yaml templates/service-back-end.yaml.j2
+          j2 -o k8s/service-front-end.yaml templates/service-front-end.yaml.j2
+          j2 -o k8s/ingress-back-end.yaml templates/ingress-back-end.yaml.j2
+          j2 -o k8s/ingress-front-end.yaml templates/ingress-front-end.yaml.j2
+        env:
+          version: ${{ github.sha }}
+          username: ${{ github.actor }}
+      - run: |
+          git config --global user.email "bot@jmunixusers.org"
+          git config --global user.name "UUG Bot"
+          git add k8s/
+          git commit -m "Publish new image"
+          git push
