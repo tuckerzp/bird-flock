@@ -15,7 +15,7 @@ spec:
         app: birds-app-front-end-tuckerzp
     spec:
       containers:
-        - image: 'ghcr.io/tuckerzp/birds-app-front-end:447a697a83d7b66588c46b07181086a2bfd0ff79'
+        - image: 'ghcr.io/tuckerzp/birds-app-front-end:a293a4a5669e64b4fc0821de27cba3556b500ca7'
           name: birds-app-front-end
           ports:
             - containerPort: 80
