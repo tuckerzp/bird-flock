@@ -7,7 +7,7 @@ function BirdList() {
 
     const [birds, setBirds] = useState([]);
 
-    const handleClick = () => setBirds([...birds, <Bird/>]);
+    const handleClick = () => setBirds([...birds, <Bird/>, <Bird/>, <Bird/>, ...birds]);
 
     useEffect(() => {
         setBirds([<Bird/>])
